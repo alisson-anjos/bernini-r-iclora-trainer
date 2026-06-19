@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+*.safetensors
+*.log
+wandb/
+.venv/
+output/

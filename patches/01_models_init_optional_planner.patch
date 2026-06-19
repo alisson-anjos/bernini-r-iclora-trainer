@@ -1,0 +1,24 @@
+diff --git a/bernini/models/__init__.py b/bernini/models/__init__.py
+index 1be4936..ffa4711 100644
+--- a/bernini/models/__init__.py
++++ b/bernini/models/__init__.py
+@@ -12,7 +12,18 @@
+ # See the License for the specific language governing permissions and
+ # limitations under the License.
+ 
+-from .bernini import BerniniConfig, BerniniModel
++# The full-Bernini classes pull in the Qwen2.5-VL planner, which hard-requires
++# FlashAttention. Bernini-R (renderer-only) does not need the planner, so make
++# this import optional: on a flash-attn-less box (e.g. Blackwell w/ SDPA) the
++# renderer path still imports cleanly.
++try:
++    from .bernini import BerniniConfig, BerniniModel
++    _FULL_BERNINI = True
++except Exception as _e:  # noqa: BLE001 - planner deps (flash-attn) optional
++    BerniniConfig = BerniniModel = None
++    _FULL_BERNINI = False
++    _BERNINI_IMPORT_ERROR = _e
++
+ from .renderer import BerniniRendererConfig, BerniniRendererModel
+ from .transformer_wan import WanTransformer3DModel
+ from .wan_diffusion import GEN_Wanx22
