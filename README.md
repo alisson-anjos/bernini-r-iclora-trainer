@@ -1,16 +1,22 @@
-# Bernini-R Head-Swap IC-LoRA Trainer
+# Bernini-R IC-LoRA Trainer
 
-Train a **head-swap LoRA** on top of the [Bernini-R](https://huggingface.co/ByteDance/Bernini-R-Diffusers)
-renderer (Wan2.2-T2V-A14B). Bernini natively concatenates conditioning sources into
-one self-attention sequence disambiguated by a per-source RoPE phase (`source_id`),
-so this is a *fine-tune, not teach* setup: freeze the base, attach LoRA, and learn
-the head-swap from triplets.
+Train an **in-context (reference-conditioned) LoRA** on top of the
+[Bernini-R](https://huggingface.co/ByteDance/Bernini-R-Diffusers) renderer
+(Wan2.2-T2V-A14B). Bernini natively concatenates conditioning sources into one
+self-attention sequence disambiguated by a per-source RoPE phase (`source_id`), so
+this is a *fine-tune, not teach* setup: freeze the base, attach LoRA, learn the
+edit from triplets.
 
 ```
-[ source/guide video (source_id 1) | head reference image (source_id 2) | noisy target (source_id 0) ]
+[ guide video (source_id 1) | reference image (source_id 2) | noisy target (source_id 0) ]
 ```
 Flow-matching v-target, loss on the target tokens only. What you train is exactly
 what inference runs (the VI combo of `GEN_Wanx22.sample()` minus guidance).
+
+The task is whatever your dataset is: a `(guide video, reference image, target
+video)` triplet. **Head-swap** (keep the body/scene from the guide, take identity
+from the reference) is the example used throughout this README, but the same code
+trains any reference-guided video edit — swap the dataset and go.
 
 ## What's here
 - `train/train_iclora.py` — the trainer (single-expert GPU offload so high frame
@@ -63,8 +69,8 @@ hf download ByteDance/Bernini-R-Diffusers --local-dir /path/to/Bernini-R-Diffuse
 ```
 
 ## Dataset
-Triplets of `target` (the head-swapped result, supervised), `guide` (source video,
-kept), `reference` (head/face crop, identity). A JSONL with one object per line:
+Triplets of `target` (the edited result, supervised), `guide` (source video,
+kept), `reference` (the reference image — e.g. a head/face crop for head-swap). A JSONL with one object per line:
 ```json
 {"vid": "clip_0001", "video_path": ".../target/clip_0001.mp4", "caption": "head_swap:"}
 ```
