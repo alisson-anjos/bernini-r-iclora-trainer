@@ -42,18 +42,26 @@ cp -r bernini-headswap-trainer/train Bernini/train
 cd Bernini
 ```
 
-**2. Environment (Python 3.11)**
+**2. Environment (Python 3.11, uv)**
 ```bash
+# from inside the Bernini repo (after copying train/ into it)
 uv venv --python 3.11 .venv && source .venv/bin/activate
-# Blackwell: cu128. Otherwise use the build matching your GPU.
+
+# 1) torch — GPU-specific build FIRST. Blackwell needs cu128; pick yours otherwise.
 uv pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128
-uv pip install diffusers==0.35.2 transformers==4.57.3 accelerate==0.34.2 \
-  safetensors einops numpy Pillow tqdm ftfy decord imageio imageio-ffmpeg scipy \
-  huggingface_hub peft wandb omegaconf insightface onnxruntime opencv-python-headless
+
+# 2) the rest of the deps
+uv pip install -r ../bernini-headswap-trainer/requirements.txt
+
+# 3) VeOmni (Bernini dep) with --no-deps so it doesn't override your torch
 uv pip install --no-deps "git+https://github.com/ByteDance-Seed/VeOmni.git@v0.1.10"
+
+# 4) Bernini itself (editable)
 uv pip install --no-deps -e .
 ```
-> flash-attn is optional (SDPA/VeOmni attention is used if absent) — skip it on Blackwell.
+> flash-attn is optional (SDPA / VeOmni attention is used if absent) — skip it on Blackwell.
+> `requirements.txt` deliberately omits torch + VeOmni because both need the special
+> install above.
 
 **3. Apply the two Bernini patches**
 ```bash
@@ -69,17 +77,35 @@ hf download ByteDance/Bernini-R-Diffusers --local-dir /path/to/Bernini-R-Diffuse
 ```
 
 ## Dataset
-Triplets of `target` (the edited result, supervised), `guide` (source video,
-kept), `reference` (the reference image — e.g. a head/face crop for head-swap). A JSONL with one object per line:
-```json
-{"vid": "clip_0001", "video_path": ".../target/clip_0001.mp4", "caption": "head_swap:"}
-```
-`guide` and `reference` are resolved as `<root>/guide/<vid>.mp4` and `<root>/reference/<vid>.png`.
-Captions: the trigger `head_swap:` alone works (most of our data was just that); an
-optional natural-language or `FACE:/ACTION:` description can follow.
+Each sample is a **triplet** that shares the same `<vid>` name across three folders
+under your `--data_root`:
 
-> Note: Bernini uses the **Wan VAE**, so latents are encoded on the fly — LTX/other
-> precomputed latents are not reusable.
+```
+<data_root>/
+├── target/<vid>.mp4       # the EDITED result — what the model is supervised to produce
+├── guide/<vid>.mp4        # the source video — body/motion/scene that is KEPT  (source_id 1)
+└── reference/<vid>.png    # the reference image — identity to inject (head crop)  (source_id 2)
+```
+Rules: `guide` and `reference` are **always** resolved from `<data_root>` + `<vid>`
+(never from the JSONL). `target` is `.mp4`, `reference` is `.png`, all three share the
+same `<vid>`. Any sample missing one of the three files is silently skipped.
+
+The JSONL (passed as `--jsonl`) needs only `vid` + `caption`:
+```json
+{"vid": "clip_0001", "caption": "head_swap:"}
+{"vid": "clip_0002", "caption": "head_swap:"}
+```
+Optional: add `"video_path": "/abs/path/target.mp4"` to override **only** the target
+location (e.g. targets stored elsewhere); guide/reference still come from `<data_root>`.
+
+Captions: the trigger `head_swap:` alone works (most of our data was just that); an
+optional natural-language or `FACE:/ACTION:` description can follow. The trigger is
+just a convention — pick any token for your own task.
+
+> Note: this is a *reference-guided edit* dataset — `target` must be the actual edited
+> video (guide content + reference identity). That's the hard part to source; we
+> synthesized ours. Bernini uses the **Wan VAE**, so latents are encoded on the fly —
+> LTX/other precomputed latents are not reusable.
 
 ## Train
 ```bash

@@ -1,0 +1,30 @@
+# Bernini-R IC-LoRA trainer — Python deps.
+# NOTE: install torch SEPARATELY first (GPU-specific build), then this file, then
+# VeOmni with --no-deps. See README "Setup".
+#
+#   uv pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128
+#   uv pip install -r requirements.txt
+#   uv pip install --no-deps "git+https://github.com/ByteDance-Seed/VeOmni.git@v0.1.10"
+
+diffusers==0.35.2
+transformers==4.57.3
+accelerate==0.34.2
+safetensors
+einops
+numpy
+Pillow
+tqdm
+ftfy
+decord
+imageio
+imageio-ffmpeg
+scipy
+huggingface_hub
+omegaconf
+peft
+wandb
+
+# validation generation + ArcFace identity metric
+insightface
+onnxruntime
+opencv-python-headless
