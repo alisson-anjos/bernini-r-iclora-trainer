@@ -26,7 +26,12 @@ trains any reference-guided video edit — swap the dataset and go.
   LoRA files (kohya `lora_unet_blocks_N_...` keys, single underscore).
 - `train/arcface_monitor.py` — out-of-process ArcFace curve logger (wandb).
 - `train/lora_targets.py`, `train/smoke_lora.py`, `train/run_headswap_iclora.sh`.
+- `train/infer_headswap.py` — local inference (Bernini-R + LoRA) for quick checks.
+- `comfyui/iclora_reference_conditioning.py` — generic ComfyUI inference node.
 - `patches/` — two small edits to the Bernini repo (see Setup step 3).
+
+> **Customizing for your own task / extending this?** Read [`CLAUDE.md`](CLAUDE.md) —
+> it documents the mechanism, every gotcha we hit, and how to adapt the dataset/code.
 
 ## Requirements
 - 1 GPU with ≥ ~72 GB VRAM for 73f/640 (single-expert offload). Less frames/res → less.
@@ -127,13 +132,43 @@ python train/train_iclora.py \
   validation generation spikes; ~640 long edge rides near a 96 GB cap.
 - Watch `val/arcface_mean` (FM loss is ~flat; ArcFace is the real signal).
 
-## Export for ComfyUI
+## Weights & Biases (wandb)
+Training logs to wandb by default. Per step: `train/loss`, `train/lr`,
+`train/expert` (1=high / 2=low), `train/peak_vram_gb`. Per validation:
+`val/arcface_mean` + video previews.
+
+```bash
+wandb login            # or: export WANDB_API_KEY=...    (once)
+# then just train — it auto-creates the run
+python train/train_iclora.py ... --wandb_project my-project --wandb_name my-run
+```
+- `--no_wandb` disables it. If you're not logged in, the trainer **keeps training**
+  and just skips logging (it won't crash).
+- ArcFace is logged from validation, but the in-trainer insightface init can be
+  flaky; for a reliable curve run the sidecar against the run folder:
+  ```bash
+  python train/arcface_monitor.py --run_dir /path/to/out
+  ```
+  It computes ArcFace from the saved validation mp4s and logs its own wandb run.
+
+## Export + run in ComfyUI
 ```bash
 python train/export_lora_comfy.py --ckpt /path/to/out/lora_step3000.safetensors --alpha 64
 # -> lora_step3000_high_noise.safetensors + lora_step3000_low_noise.safetensors
 ```
-In ComfyUI: base = **Bernini-R** high/low (e.g. `Comfy-Org/Bernini-R`, NOT vanilla
-Wan2.2); apply the high LoRA to the high-noise model and low to the low-noise model.
+Then, in ComfyUI:
+- **Base = Bernini-R** high/low (e.g. `Comfy-Org/Bernini-R`), **NOT** vanilla Wan2.2.
+  Apply the high LoRA to the high-noise model, low to the low-noise model.
+- **You need a conditioning node** that attaches the guide + references as in-context
+  `context_latents` with `source_id` — ComfyUI's stock nodes don't do this. A **generic**
+  one is included here: [`comfyui/iclora_reference_conditioning.py`](comfyui/iclora_reference_conditioning.py)
+  (guide → source_id 1, references → source_id 2,3…). Drop it into a custom-nodes package.
+- That node only *sets* `context_latents`; the **WanModel patch** that *consumes* them
+  comes from [ComfyUI-RH-Bernini](https://github.com/RH-RunningHub/ComfyUI-RH-Bernini)
+  (GPL-3.0, install it) or a ComfyUI build with native Bernini support. We don't bundle
+  that patch (this repo is Apache).
+- Use **CFG ~3–5**, keep `amplify_reference` ON, and **avoid Lightning/step-distill
+  LoRAs** (they force CFG ~1.0 → no reference amplification).
 
 ## License
 Trainer code: Apache-2.0. Built on [ByteDance/Bernini](https://github.com/bytedance/Bernini) (Apache-2.0).
