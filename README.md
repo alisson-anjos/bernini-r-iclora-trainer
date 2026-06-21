@@ -132,6 +132,36 @@ python train/train_iclora.py \
   validation generation spikes; ~640 long edge rides near a 96 GB cap.
 - Watch `val/arcface_mean` (FM loss is ~flat; ArcFace is the real signal).
 
+## Validation & samples
+Validation isn't a separate config file — it's **a held-out JSONL + a few flags**. It
+reuses the same `--data_root` folders (`guide/`, `reference/`), runs the real rv2v
+generation for each held-out `<vid>`, writes preview mp4s, and scores ArcFace identity.
+
+1. Make a `val.jsonl` with vids **not** in `train.jsonl` (same format):
+   ```json
+   {"vid": "val_clip_01", "caption": "head_swap:"}
+   {"vid": "val_clip_02", "caption": "head_swap:"}
+   ```
+   Their `guide/<vid>.mp4` and `reference/<vid>.png` must exist under `--data_root`
+   (a `target/<vid>.mp4` is not needed for validation — it's generated).
+2. Point the trainer at it and set the cadence:
+   ```bash
+   python train/train_iclora.py ... \
+     --val_jsonl /path/to/val.jsonl \
+     --validate_every 500 \   # run validation every N steps (also a baseline at step 0)
+     --val_n 3 \              # how many clips from val.jsonl to render
+     --val_steps 20           # sampler steps per clip (keep low; generation is slow)
+   # --no_val to skip validation entirely
+   ```
+   Samples are generated at the **same `--num_frames` / `--max_size` as training**.
+3. Outputs land in `<out>/validation/`:
+   - `step{N}_{vid}.mp4` — preview of each clip at each checkpoint
+   - `validation_metrics.jsonl` — `{"step", "arcface_mean", "n"}` per validation
+   - same previews + `val/arcface_mean` are logged to wandb.
+
+> Keep `--val_n` small (2–4) and `--val_steps` modest — each clip is a full generation,
+> and at high res it spikes VRAM (it's the heaviest moment of the run).
+
 ## Weights & Biases (wandb)
 Training logs to wandb by default. Per step: `train/loss`, `train/lr`,
 `train/expert` (1=high / 2=low), `train/peak_vram_gb`. Per validation:
