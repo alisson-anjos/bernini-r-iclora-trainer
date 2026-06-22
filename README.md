@@ -182,17 +182,36 @@ python train/train_iclora.py ... --wandb_project my-project --wandb_name my-run
   It computes ArcFace from the saved validation mp4s and logs its own wandb run.
 
 ## Export + run in ComfyUI
+
+### 1. Split the LoRA into high/low (REQUIRED)
+The training checkpoint is **one file** holding LoRA for **both experts**. ComfyUI loads
+the A14B as **two separate models** (high-noise + low-noise), so you **must split it into
+two LoRA files** — you can't load the combined checkpoint directly.
+
 ```bash
 python train/export_lora_comfy.py --ckpt /path/to/out/lora_step3000.safetensors --alpha 64
-# -> lora_step3000_high_noise.safetensors + lora_step3000_low_noise.safetensors
+# -> lora_step3000_high_noise.safetensors   (apply to the HIGH-noise model)
+# -> lora_step3000_low_noise.safetensors    (apply to the LOW-noise model)
 ```
-Then, in ComfyUI:
+This export **also converts the key names** from the training (diffusers/PEFT) format to
+ComfyUI's **kohya** format — `lora_unet_blocks_N_self_attn_q...` with a **single
+underscore**. This matters: the double-underscore variant some tools emit matches
+**nothing** in ComfyUI native and silently loads zero keys. So always go through this
+script; don't hand the raw training checkpoint to ComfyUI.
+
+### 2. Wire it up
 - **Base = Bernini-R** high/low (e.g. `Comfy-Org/Bernini-R`), **NOT** vanilla Wan2.2.
-  Apply the high LoRA to the high-noise model, low to the low-noise model.
-- **You need a conditioning node** that attaches the guide + references as in-context
-  `context_latents` with `source_id` — ComfyUI's stock nodes don't do this. A **generic**
-  one is included here: [`comfyui/iclora_reference_conditioning.py`](comfyui/iclora_reference_conditioning.py)
-  (guide → source_id 1, references → source_id 2,3…). Drop it into a custom-nodes package.
+  high LoRA → high-noise model, low LoRA → low-noise model.
+- **Use the matching conditioning node** — and this is not optional/cosmetic. The LoRA was
+  trained with each input at a **specific `source_id`** (guide = 1, reference = 2, target =
+  0), and `source_id` **multiplies a per-source RoPE phase** on that segment. The LoRA
+  learned the reference identity *at the source_id-2 phase*. If a node puts the reference
+  at a different source_id — wrong order, or via a "reference_video" slot that shifts it to
+  3 — the RoPE phase no longer matches training and the LoRA won't trigger correctly
+  (weak/garbled). The included **generic node**
+  [`comfyui/iclora_reference_conditioning.py`](comfyui/iclora_reference_conditioning.py)
+  hard-codes the right order (guide → source_id 1, references → 2,3…) so you can't get it
+  wrong. A stock Bernini node works **only** if you wire it in that exact order.
 - That node only *sets* `context_latents`; the **WanModel patch** that *consumes* them
   comes from [ComfyUI-RH-Bernini](https://github.com/RH-RunningHub/ComfyUI-RH-Bernini)
   (GPL-3.0, install it) or a ComfyUI build with native Bernini support. We don't bundle
